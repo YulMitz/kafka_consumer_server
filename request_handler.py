@@ -28,13 +28,15 @@ def handle_request(bootstrap_servers='140.119.164.16:9092', topic_name='ride-req
             pick_up_latitude = message.value['data']['pickup']['lat']
             drop_off_longitude = message.value['data']['dropoff']['lon']
             drop_off_latitude = message.value['data']['dropoff']['lat']
+            pick_up_zone = message.value['data']['zone']
 
             request_data = {
                 'request_id': request_id,
                 'pickup_longitude': pick_up_longitude,
                 'pickup_latitude': pick_up_latitude,
                 'dropoff_longitude': drop_off_longitude,
-                'dropoff_latitude': drop_off_latitude
+                'dropoff_latitude': drop_off_latitude,
+                'pickup_zone': pick_up_zone
             }
 
             price = calculate_price(base_price=30, client_data=request_data)

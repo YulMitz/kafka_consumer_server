@@ -50,6 +50,9 @@ def calculate_price(base_price=30, client_data=None):
     """
     if base_price < 0:
         raise ValueError("Base price cannot be negative.")
+    
+    if client_data is None:
+        raise ValueError("Client data must be provided.")
 
     # Get traffic data
     traffic_url = 'http://localhost:5050/traffic-batch'
@@ -70,21 +73,23 @@ def calculate_price(base_price=30, client_data=None):
         print("Failed to fetch driver locations batch.")
 
     # Calculate distance between client and drivers
-    distances = []
     for driver in latest_batch:
+        # Get distance from client to driver
         distance = haversine_distance(
             client_data['pickup_latitude'],
             client_data['pickup_longitude'],
             driver['latitude'],
             driver['longitude']
         )
-        distances.append(distance)
 
-    print(f"Distances from client to drivers: {distances}")
-    valid_driver_distances = sorted(distances)[:10]  # Get the 10 closest drivers
-    print(f"Valid driver distances: {valid_driver_distances}")
+        driver['distance'] = distance
 
-    driver_base_prices = [distance * 2 for distance in valid_driver_distances]
+    valid_drivers = sorted(latest_batch, key=lambda x: x['distance'])[:10]
+    print(f"Valid drivers: {valid_drivers}")
+
+    for entry in valid_drivers:
+        entry.setdefault('price_field', {})
+        entry['price_field']['base_price'] = entry['distance'] * 2
 
     # Calculate distance between pickup and dropoff locations
     travel_distance = haversine_distance(
@@ -99,6 +104,14 @@ def calculate_price(base_price=30, client_data=None):
     if travel_distance > 1.5:
         travel_base_price = (travel_distance - 1.5) * 10
 
+    # Calculate traffic multiplier by client and driver's region traffic status
+    for driver in valid_drivers:
+        # Get traffic multiplier
+        driver['traffic_multiplier'] = get_traffic_multiplier(
+            traffic_data=traffic_data, 
+            client_data=client_data,
+            driver_location=driver['location'])
+
     # Get weather data
     weather_url = 'http://localhost:5050/weather-batch'
     try:
@@ -108,26 +121,19 @@ def calculate_price(base_price=30, client_data=None):
     except requests.exceptions.RequestException as e:
         print("Failed to fetch weather data batch.")
 
-    weather_condition_multiplier = 1.0 # Default multiplier
+    weather_condition_multiplier = get_weather_multiplier(weather_data)
 
-    if weather_data and (weather_data['weather_condition'] in [item.value for item in FeaturedWeatherCondition]):
-        weather_condition = weather_data['weather_condition']
-        if weather_condition in HEAVY_RAIN_OR_ABOVE:
-            print(f"Weather condition is heavy rain or above: {weather_condition}")
-            # Apply a 50% surcharge for heavy rain or above
-            weather_condition_multiplier = 1.5
-        else:
-            print(f"Weather condition is not heavy rain or above: {weather_condition}")
-            weather_condition_multiplier = 1.2
-
+    # Calculate the final price for each driver
     all_available_prices = []
-    for driver_base_price in driver_base_prices:
-        total_base_price = base_price + driver_base_price + travel_base_price
-        price_per_driver = total_base_price * weather_condition_multiplier
-        all_available_prices.append(price_per_driver)
-        print(f"calculated price: {price_per_driver}, with total base price: {total_base_price}")
+    for driver in valid_drivers:
+        driver['price_field']['total_base_price'] = base_price + driver['price_field']['base_price'] + travel_base_price
+        driver['price_field']['final_price'] = driver['price_field']['total_base_price'] * weather_condition_multiplier * driver['traffic_multiplier']
+        all_available_prices.append(driver['price_field']['final_price'])
+        print(f"calculated price: {driver['price_field']['final_price']}, with total base price: {driver['price_field']['total_base_price']}")
+        print(f"Weather condition multiplier: {weather_condition_multiplier}, Traffic multiplier: {driver['traffic_multiplier']}")
 
-    return all_available_prices
+    print(f"All available prices: {all_available_prices}")
+    return valid_drivers
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     # Earth radius in kilometers
@@ -150,5 +156,92 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
     return raw_distance
 
+def get_weather_multiplier(weather_data=None, default_multiplier=1.0):
+    if weather_data is None:
+        print("No weather data provided, using default multiplier.")
+        return default_multiplier
+
+    if weather_data and (weather_data['weather_condition'] in [item.value for item in FeaturedWeatherCondition]):
+        weather_condition = weather_data['weather_condition']
+    else:
+        print("No featured weather condition or missing weather condition, using default multiplier.")
+        return default_multiplier
+
+    if weather_condition in HEAVY_RAIN_OR_ABOVE:
+        print(f"Weather condition is heavy rain or above: {weather_condition}")
+        # Apply a 50% surcharge for heavy rain or above
+        return 1.5
+    else:
+        print(f"Weather condition is not heavy rain or above: {weather_condition}")
+        return 1.2
+
+def get_traffic_multiplier(traffic_data=None, client_data=None, driver_location=None, default_multiplier=1.0):
+    if traffic_data is None:
+        print("No traffic data provided, using default multiplier.")
+        return default_multiplier
+
+    client_region = client_data['pickup_zone']
+    driver_region = driver_location
+
+    if client_region == driver_region:
+        print(f"Client and driver are in the same region: {client_region}")
+        count = 0
+        for entry in traffic_data:
+            if client_region in entry['region'][3:]:
+                status = entry['traffic_status']
+                count += 1
+                match status:
+                    case "順暢":
+                        return 1.0
+                    case "中等":
+                        return 1.1
+                    case "擁塞":
+                        return 1.2
+                    case _:
+                        print(f"Unknown traffic status: {status}, using default multiplier.")
+                        return default_multiplier
+        if count == 0:
+            print(f"Region {client_region} not found in traffic data, using default multiplier.")
+            return default_multiplier
+    else:
+        print(f"Client and driver are in different regions: {client_region}, {driver_region}")
+        client_count = 0
+        driver_count = 0
+        for entry in traffic_data:
+            if client_region == entry['region'][3:]:
+                status = entry['traffic_status']
+                print(f"Client region {client_region} traffic status: {status}")
+                client_count += 1
+                match status:
+                    case "順暢":
+                        client_side = 1.1
+                    case "中等":
+                        client_side = 1.2
+                    case "擁塞":
+                        client_side = 1.3
+                    case _:
+                        print(f"Unknown traffic status: {status}, using default multiplier.")
+                        client_side = 1.0
+            if driver_region == entry['region'][3:]:
+                status = entry['traffic_status']
+                print(f"Driver region: {driver_region}, Traffic status: {status}")
+                driver_count += 1
+                match status:
+                    case "順暢":
+                        driver_side = 1.1
+                    case "中等":
+                        driver_side = 1.2
+                    case "擁塞":
+                        driver_side = 1.3
+                    case _:
+                        print(f"Unknown traffic status: {status}, using default multiplier.")
+                        driver_side = 1.0
+        if client_count == 0 or driver_count == 0:
+            print(f"Client region {client_region} or driver region {driver_region} not found in traffic data, using default multiplier.")
+            return default_multiplier
+        
+        print(f"Client traffic multiplier: {client_side}, Driver traffic multiplier: {driver_side}")
+        return client_side * driver_side
+        
 if __name__ == "__main__":
     calculate_price()
