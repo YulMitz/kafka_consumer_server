@@ -49,12 +49,23 @@ def stream_traffic_data(bootstrap_servers='140.119.164.16:9092', topic_name='tra
     logging.info(f"Starting to consume events from topic '{topic_name}'...")
 
     try:
+        count = 0
         while not stop_event.is_set():
             batch = []
             raw_messages = consumer.poll(timeout_ms=1000)
 
+            if not raw_messages or len(raw_messages) == 0:
+                # No new messages received, wait before polling again
+                logging.info("No new messages received, waiting...")
+                time.sleep(1)
+
             for _, messages in raw_messages.items():
                 for message in messages:
+                    count += 1
+                    if count % 50 == 0:
+                        logging.info(f"Processed {count} traffic messages so far...")
+                        logging.info(f"Received: {message}")
+                        logging.info("-" * 50)
                     for region in message.value:
                         traffic_data = {
                             'region': region['location'],
@@ -86,11 +97,22 @@ def stream_weather_data(bootstrap_servers='140.119.164.16:9092', topic_name='wea
     logging.info(f"Starting to consume events from topic '{topic_name}'...")
 
     try:
+        count = 0
         while not stop_event.is_set():
             batch = None
             raw_messages = consumer.poll(timeout_ms=1000)
+
+            if not raw_messages or len(raw_messages) == 0:
+                logging.info("No new messages received, waiting...")
+                time.sleep(1)
+
             for _, messages in raw_messages.items():
                 for message in messages:
+                    count += 1
+                    if count % 50 == 0:
+                        logging.info(f"Processed {count} temperature messages so far...")
+                        logging.info(f"Received: {message}")
+                        logging.info("-" * 50)
                     temperature = message.value['data']['temperature']
                     humidity = message.value['data']['humidity']
                     weather_condition = message.value['data']['weather']

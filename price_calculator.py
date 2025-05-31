@@ -2,7 +2,15 @@ import json
 import time
 import requests
 import math
+import logging
 from enum import Enum
+
+# Configure logging
+logging.basicConfig(
+    filename='price_calculator.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 class FeaturedWeatherCondition(Enum):
     # Rain series
@@ -59,18 +67,22 @@ def calculate_price(base_price=30, client_data=None):
     try:
         response = requests.get(traffic_url, timeout=0.5)
         traffic_data = response.json()
-        print(f"Latest traffic data batch: {traffic_data}")
+
+        if traffic_data is None:
+            logging.warning("Invalid traffic data received.")
+            traffic_data = []
+        # print(f"Latest traffic data batch: {traffic_data}")
     except requests.exceptions.RequestException as e:
-        print("Failed to fetch traffic data batch.")
+        logging.error("Failed to fetch traffic data batch.")
 
     # Get current driver locations
     driver_location_url = 'http://localhost:5000/driver-locations-batch'
     try:
         response = requests.get(driver_location_url, timeout=0.5)
         latest_batch = response.json()
-        print(f"Latest driver locations batch: {latest_batch}")
+        # print(f"Latest driver locations batch: {latest_batch}")
     except requests.exceptions.RequestException as e:
-        print("Failed to fetch driver locations batch.")
+        logging.error("Failed to fetch driver locations batch.")
 
     # Calculate distance between client and drivers
     for driver in latest_batch:
@@ -85,7 +97,7 @@ def calculate_price(base_price=30, client_data=None):
         driver['distance'] = distance
 
     valid_drivers = sorted(latest_batch, key=lambda x: x['distance'])[:10]
-    print(f"Valid drivers: {valid_drivers}")
+    # print(f"Valid drivers: {valid_drivers}")
 
     for entry in valid_drivers:
         entry.setdefault('price_field', {})
@@ -98,7 +110,7 @@ def calculate_price(base_price=30, client_data=None):
         client_data['dropoff_latitude'],
         client_data['dropoff_longitude']
     )
-    print(f"Travel distance: {travel_distance} km")
+    # print(f"Travel distance: {travel_distance} km")
 
     travel_base_price = 0  # Initialize travel base price
     if travel_distance > 1.5:
@@ -117,9 +129,9 @@ def calculate_price(base_price=30, client_data=None):
     try:
         response = requests.get(weather_url, timeout=0.5)
         weather_data = response.json()
-        print(f"Latest weather data batch: {weather_data}")
+        # print(f"Latest weather data batch: {weather_data}")
     except requests.exceptions.RequestException as e:
-        print("Failed to fetch weather data batch.")
+        logging.error("Failed to fetch weather data batch.")
 
     weather_condition_multiplier = get_weather_multiplier(weather_data)
 
@@ -129,10 +141,10 @@ def calculate_price(base_price=30, client_data=None):
         driver['price_field']['total_base_price'] = base_price + driver['price_field']['base_price'] + travel_base_price
         driver['price_field']['final_price'] = driver['price_field']['total_base_price'] * weather_condition_multiplier * driver['traffic_multiplier']
         all_available_prices.append(driver['price_field']['final_price'])
-        print(f"calculated price: {driver['price_field']['final_price']}, with total base price: {driver['price_field']['total_base_price']}")
-        print(f"Weather condition multiplier: {weather_condition_multiplier}, Traffic multiplier: {driver['traffic_multiplier']}")
+        logging.info(f"calculated price: {driver['price_field']['final_price']}, with total base price: {driver['price_field']['total_base_price']}")
+        logging.info(f"Weather condition multiplier: {weather_condition_multiplier}, Traffic multiplier: {driver['traffic_multiplier']}")
 
-    print(f"All available prices: {all_available_prices}")
+    logging.info(f"All available prices: {all_available_prices}")
     return valid_drivers
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -158,33 +170,33 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 def get_weather_multiplier(weather_data=None, default_multiplier=1.0):
     if weather_data is None:
-        print("No weather data provided, using default multiplier.")
+        logging.warning("No weather data provided, using default multiplier.")
         return default_multiplier
 
     if weather_data and (weather_data['weather_condition'] in [item.value for item in FeaturedWeatherCondition]):
         weather_condition = weather_data['weather_condition']
     else:
-        print("No featured weather condition or missing weather condition, using default multiplier.")
+        logging.warning("No featured weather condition or missing weather condition, using default multiplier.")
         return default_multiplier
 
     if weather_condition in HEAVY_RAIN_OR_ABOVE:
-        print(f"Weather condition is heavy rain or above: {weather_condition}")
+        # print(f"Weather condition is heavy rain or above: {weather_condition}")
         # Apply a 50% surcharge for heavy rain or above
         return 1.5
     else:
-        print(f"Weather condition is not heavy rain or above: {weather_condition}")
+        # print(f"Weather condition is not heavy rain or above: {weather_condition}")
         return 1.2
 
 def get_traffic_multiplier(traffic_data=None, client_data=None, driver_location=None, default_multiplier=1.0):
-    if traffic_data is None:
-        print("No traffic data provided, using default multiplier.")
+    if traffic_data is []:
+        logging.warning("No traffic data provided, using default multiplier.")
         return default_multiplier
 
     client_region = client_data['pickup_zone']
     driver_region = driver_location
 
     if client_region == driver_region:
-        print(f"Client and driver are in the same region: {client_region}")
+        # print(f"Client and driver are in the same region: {client_region}")
         count = 0
         for entry in traffic_data:
             if client_region in entry['region'][3:]:
@@ -198,19 +210,19 @@ def get_traffic_multiplier(traffic_data=None, client_data=None, driver_location=
                     case "擁塞":
                         return 1.2
                     case _:
-                        print(f"Unknown traffic status: {status}, using default multiplier.")
+                        logging.warning(f"Unknown traffic status: {status}, using default multiplier.")
                         return default_multiplier
         if count == 0:
-            print(f"Region {client_region} not found in traffic data, using default multiplier.")
+            logging.warning(f"Region {client_region} not found in traffic data, using default multiplier.")
             return default_multiplier
     else:
-        print(f"Client and driver are in different regions: {client_region}, {driver_region}")
+        # print(f"Client and driver are in different regions: {client_region}, {driver_region}")
         client_count = 0
         driver_count = 0
         for entry in traffic_data:
             if client_region == entry['region'][3:]:
                 status = entry['traffic_status']
-                print(f"Client region {client_region} traffic status: {status}")
+                # print(f"Client region {client_region} traffic status: {status}")
                 client_count += 1
                 match status:
                     case "順暢":
@@ -220,11 +232,11 @@ def get_traffic_multiplier(traffic_data=None, client_data=None, driver_location=
                     case "擁塞":
                         client_side = 1.3
                     case _:
-                        print(f"Unknown traffic status: {status}, using default multiplier.")
+                        logging.warning(f"Unknown traffic status: {status}, using default multiplier.")
                         client_side = 1.0
             if driver_region == entry['region'][3:]:
                 status = entry['traffic_status']
-                print(f"Driver region: {driver_region}, Traffic status: {status}")
+                # print(f"Driver region: {driver_region}, Traffic status: {status}")
                 driver_count += 1
                 match status:
                     case "順暢":
@@ -234,13 +246,13 @@ def get_traffic_multiplier(traffic_data=None, client_data=None, driver_location=
                     case "擁塞":
                         driver_side = 1.3
                     case _:
-                        print(f"Unknown traffic status: {status}, using default multiplier.")
+                        logging.warning(f"Unknown traffic status: {status}, using default multiplier.")
                         driver_side = 1.0
         if client_count == 0 or driver_count == 0:
-            print(f"Client region {client_region} or driver region {driver_region} not found in traffic data, using default multiplier.")
+            logging.warning(f"Client region {client_region} or driver region {driver_region} not found in traffic data, using default multiplier.")
             return default_multiplier
         
-        print(f"Client traffic multiplier: {client_side}, Driver traffic multiplier: {driver_side}")
+        # print(f"Client traffic multiplier: {client_side}, Driver traffic multiplier: {driver_side}")
         return client_side * driver_side
         
 if __name__ == "__main__":

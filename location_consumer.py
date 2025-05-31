@@ -48,6 +48,7 @@ def stream_driver_locations(bootstrap_servers='140.119.164.16:9092', topic_name=
     logging.info(f"Starting to consume events from topic '{topic_name}'...")
 
     try:
+        count = 0
         while not stop_event.is_set():
             batch = []
             raw_messages = consumer.poll(timeout_ms=1000)  # Poll for new messages with timeout stop event
