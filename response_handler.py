@@ -1,4 +1,5 @@
 from kafka import KafkaProducer
+from logging.handlers import RotatingFileHandler
 import json
 import random
 import time
@@ -10,8 +11,9 @@ import signal
 import requests
 
 # Configure logging
+handler = RotatingFileHandler('response_handler.log', maxBytes=100*1024*1024, backupCount=3)
 logging.basicConfig(
-    filename='response_handler.log',
+    handlers=[handler],
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
@@ -38,14 +40,21 @@ def produce_responses(bootstrap_servers='140.119.164.16:9092', topic_name='respo
 
     try:
         count = 0
+        error_count = 0
         response_url = 'http://localhost:5100/responses'
         while not stop_event.is_set():
             try:
                 response = requests.get(response_url, timeout=2)
                 data = response.json()
             except requests.exceptions.RequestException as e:
+                error_count += 1
                 print(f"Error fetching response data: {e}")
                 logging.error("Failed to fetch traffic data batch.")
+
+                if error_count > 30:
+                    print("Too many errors, stopping producer.")
+                    logging.error("Too many errors fetching response data, stopping producer.")
+                    break
             
             if data and len(data) > 0:
                 for item in data:

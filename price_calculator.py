@@ -64,16 +64,13 @@ def calculate_price(base_price=30, client_data=None):
 
     # Get traffic data
     traffic_url = 'http://localhost:5050/traffic-batch'
+    traffic_data = {}
     try:
         response = requests.get(traffic_url, timeout=0.5)
         traffic_data = response.json()
-
-        if traffic_data is None:
-            logging.warning("Invalid traffic data received.")
-            traffic_data = []
         # print(f"Latest traffic data batch: {traffic_data}")
     except requests.exceptions.RequestException as e:
-        logging.error("Failed to fetch traffic data batch.")
+        logging.error(f"Failed to fetch traffic data batch: {e}")
 
     # Get current driver locations
     driver_location_url = 'http://localhost:5000/driver-locations-batch'
@@ -82,7 +79,7 @@ def calculate_price(base_price=30, client_data=None):
         latest_batch = response.json()
         # print(f"Latest driver locations batch: {latest_batch}")
     except requests.exceptions.RequestException as e:
-        logging.error("Failed to fetch driver locations batch.")
+        logging.error(f"Failed to fetch driver locations batch: {e}")
 
     # Calculate distance between client and drivers
     for driver in latest_batch:
@@ -101,7 +98,7 @@ def calculate_price(base_price=30, client_data=None):
 
     for entry in valid_drivers:
         entry.setdefault('price_field', {})
-        entry['price_field']['base_price'] = entry['distance'] * 2
+        entry['price_field']['base_price'] = base_price + entry['distance'] * 2
 
     # Calculate distance between pickup and dropoff locations
     travel_distance = haversine_distance(
@@ -126,12 +123,13 @@ def calculate_price(base_price=30, client_data=None):
 
     # Get weather data
     weather_url = 'http://localhost:5050/weather-batch'
+    weather_data = {}
     try:
         response = requests.get(weather_url, timeout=0.5)
         weather_data = response.json()
         # print(f"Latest weather data batch: {weather_data}")
     except requests.exceptions.RequestException as e:
-        logging.error("Failed to fetch weather data batch.")
+        logging.error(f"Failed to fetch weather data batch: {e}")
 
     weather_condition_multiplier = get_weather_multiplier(weather_data)
 
@@ -169,7 +167,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return raw_distance
 
 def get_weather_multiplier(weather_data=None, default_multiplier=1.0):
-    if weather_data is None:
+    if weather_data is {}:
         logging.warning("No weather data provided, using default multiplier.")
         return default_multiplier
 
@@ -188,7 +186,7 @@ def get_weather_multiplier(weather_data=None, default_multiplier=1.0):
         return 1.2
 
 def get_traffic_multiplier(traffic_data=None, client_data=None, driver_location=None, default_multiplier=1.0):
-    if traffic_data is []:
+    if traffic_data is {}:
         logging.warning("No traffic data provided, using default multiplier.")
         return default_multiplier
 

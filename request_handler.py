@@ -3,6 +3,7 @@ from kafka import KafkaConsumer
 from datetime import datetime
 from price_calculator import calculate_price
 from flask import Flask, jsonify
+from logging.handlers import RotatingFileHandler
 import json
 import threading
 import logging
@@ -12,10 +13,11 @@ import sys
 import signal
 
 # Configure logging
+handler = RotatingFileHandler('request_handler.log', maxBytes=100*1024*1024, backupCount=3)
 logging.basicConfig(
-    filename='request_handler.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[handler]
 )
 
 # Thread-safe queue to hold responses

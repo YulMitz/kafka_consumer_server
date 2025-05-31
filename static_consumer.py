@@ -58,6 +58,7 @@ def stream_traffic_data(bootstrap_servers='140.119.164.16:9092', topic_name='tra
                 # No new messages received, wait before polling again
                 logging.info("No new messages received, waiting...")
                 time.sleep(1)
+                continue
 
             for _, messages in raw_messages.items():
                 for message in messages:
@@ -105,6 +106,7 @@ def stream_weather_data(bootstrap_servers='140.119.164.16:9092', topic_name='wea
             if not raw_messages or len(raw_messages) == 0:
                 logging.info("No new messages received, waiting...")
                 time.sleep(1)
+                continue
 
             for _, messages in raw_messages.items():
                 for message in messages:
@@ -136,13 +138,13 @@ def stream_weather_data(bootstrap_servers='140.119.164.16:9092', topic_name='wea
 def get_traffic_batch():
     """Endpoint to get a batch of traffic data """
     with batch_lock:
-        return jsonify(latest_traffic_batch if latest_traffic_batch is not None else [])
+        return jsonify(latest_traffic_batch if latest_traffic_batch is not None else {})
 
 @app.route('/weather-batch', methods=['GET'])
 def get_weather_batch():
     """Endpoint to get a batch of weather data """
     with batch_lock:
-        return jsonify(latest_weather_batch if latest_weather_batch is not None else [])
+        return jsonify(latest_weather_batch if latest_weather_batch is not None else {})
 
 if __name__ == "__main__":
     try:
